@@ -1,0 +1,126 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <DHT.h>
+
+// ================= CONFIGURAÇÕES =================
+
+// WiFi
+const char* ssid = "Wokwi-GUEST";
+const char* password = "";
+
+// MQTT
+const char* mqtt_server = "broker.hivemq.com";
+
+// Tópicos MQTT
+const char* topicTemp = "esp32_projeto/temperatura";
+const char* topicUmid = "esp32_projeto/umidade";
+const char* topicLuz  = "esp32_projeto/luminosidade";
+
+// ================= PINOS =================
+
+#define DHTPIN 15
+#define DHTTYPE DHT22
+
+#define LDR_PIN 34
+#define LED_VERDE 26
+#define LED_AMARELO 27
+#define LED_VERMELHO 25
+#define BUZZER 14
+
+// ================= OBJETOS =================
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+DHT dht(DHTPIN, DHTTYPE);
+
+// ================= FUNÇÕES =================
+
+void setup_wifi() {
+  delay(10);
+  Serial.println("Conectando ao WiFi...");
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi conectado!");
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Conectando ao MQTT...");
+    if (client.connect("ESP32Client")) {
+      Serial.println("conectado!");
+    } else {
+      Serial.print("falha, rc=");
+      Serial.print(client.state());
+      Serial.println(" tentando novamente em 5 segundos");
+      delay(5000);
+    }
+  }
+}
+
+// ================= SETUP =================
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(LED_VERDE, OUTPUT);
+  pinMode(LED_AMARELO, OUTPUT);
+  pinMode(LED_VERMELHO, OUTPUT);
+  pinMode(BUZZER, OUTPUT);
+
+  dht.begin();
+  setup_wifi();
+
+  client.setServer(mqtt_server, 1883);
+}
+
+// ================= LOOP =================
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  float temperatura = dht.readTemperature();
+  float umidade = dht.readHumidity();
+  int luz = analogRead(LDR_PIN);
+
+  // Envio MQTT
+  client.publish(topicTemp, String(temperatura).c_str());
+  client.publish(topicUmid, String(umidade).c_str());
+  client.publish(topicLuz, String(luz).c_str());
+
+  Serial.println("--------");
+  Serial.print("Temperatura: ");
+  Serial.println(temperatura);
+  Serial.print("Umidade: ");
+  Serial.println(umidade);
+  Serial.print("Luminosidade: ");
+  Serial.println(luz);
+
+  // ================= ALERTAS =================
+
+  // Temperatura crítica
+  if (temperatura > 30) {
+    digitalWrite(LED_VERMELHO, HIGH);
+    tone(BUZZER, 1000);
+  } else {
+    digitalWrite(LED_VERMELHO, LOW);
+    noTone(BUZZER);
+  }
+
+  // Luminosidade
+  if (luz < 1500) {
+    digitalWrite(LED_VERDE, HIGH);
+    digitalWrite(LED_AMARELO, LOW);
+  } else {
+    digitalWrite(LED_VERDE, LOW);
+    digitalWrite(LED_AMARELO, HIGH);
+  }
+
+  delay(2000);
+}
